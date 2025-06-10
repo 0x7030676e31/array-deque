@@ -1,9 +1,9 @@
 [package]
 name = "array-deque"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 authors = ["Tobiasz Chmielewski <0x7030676e31@proton.me>"]
-description = "A fixed-capacity circular buffer (ring buffer) implementation with efficient operations at both ends"
+description = "Fixed-capacity circular buffer implementations: heap-allocated ArrayDeque and stack-allocated StackArrayDeque. Efficient O(1) operations, no_std support."
 license = "MIT"
 repository = "https://github.com/0x7030676e31/array-deque"
 homepage = "https://github.com/0x7030676e31/array-deque"
@@ -16,18 +16,18 @@ keywords = [
     "data-structures",
     "fixed-capacity",
 ]
-categories = ["data-structures"]
+categories = ["data-structures", "no-std"]
 exclude = ["target/", ".git/", ".vscode/"]
 
 [dependencies]
-serde = { version = "1.0.219", optional = true }
+serde = { version = "1.0.219", optional = true, package = "serde" }
 
 [dev-dependencies]
 serde_json = "1.0.140"
 
 [features]
 default = ["std"]
-serde = ["dep:serde"]
+serde = ["serde"]
 std = []
 
 [package.metadata.docs.rs]
