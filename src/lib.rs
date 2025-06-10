@@ -1,3 +1,4 @@
+#![cfg_attr(not(feature = "std"), no_std)]
 //! A fixed-capacity circular buffer (ring buffer) implementation.
 //!
 //! This crate provides [`ArrayDeque`], a double-ended queue with a fixed capacity
@@ -23,7 +24,20 @@
 //!
 //! - **serde**: Enable serialization and deserialization support with serde.
 
-use std::alloc::{self, Layout};
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(not(feature = "std"))]
+use alloc::{
+    alloc::{Layout, alloc, dealloc},
+    vec::Vec,
+};
+
+#[cfg(feature = "std")]
+use std::{
+    alloc::{Layout, alloc, dealloc},
+    vec::Vec,
+};
 
 use core::marker::PhantomData;
 use core::ops::{Index, IndexMut};
@@ -106,11 +120,14 @@ impl<T> ArrayDeque<T> {
     /// ```
     pub fn new(cap: usize) -> Self {
         assert!(cap > 0, "Capacity must be greater than zero");
+
         let layout = Layout::array::<T>(cap).expect("Invalid layout");
-        let ptr = unsafe { alloc::alloc(layout) as *mut T };
+        let ptr = unsafe { alloc(layout) as *mut T };
+
         if ptr.is_null() {
             panic!("Failed to allocate memory");
         }
+
         Self {
             ptr,
             cap,
@@ -365,7 +382,7 @@ impl<T> Drop for ArrayDeque<T> {
         self.clear();
         let layout = Layout::array::<T>(self.cap).expect("Invalid layout");
         unsafe {
-            alloc::dealloc(self.ptr.cast(), layout);
+            dealloc(self.ptr.cast(), layout);
         }
     }
 }
