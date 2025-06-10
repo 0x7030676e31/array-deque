@@ -34,16 +34,16 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-array-deque = "0.3.0"
+array-deque = "0.3.1"
 
 # For serde support
-array-deque = { version = "0.3.0", features = ["serde"] }
+array-deque = { version = "0.3.1", features = ["serde"] }
 
 # For no_std environments (requires alloc for ArrayDeque)
-array-deque = { version = "0.3.0", default-features = false }
+array-deque = { version = "0.3.1", default-features = false }
 
 # For no_std with serde
-array-deque = { version = "0.3.0", default-features = false, features = ["serde"] }
+array-deque = { version = "0.3.1", default-features = false, features = ["serde"] }
 ```
 
 ## Usage
@@ -297,15 +297,15 @@ All core operations are O(1) for both implementations:
 
 ## Comparison Table
 
-| Feature | `ArrayDeque` | `StackArrayDeque` | `VecDeque` |
-|---------|--------------|-------------------|------------|
-| Allocation | Heap | Stack | Heap |
-| Capacity | Runtime-fixed | Compile-time fixed | Dynamic, grows |
-| Memory | Predictable after init | Completely predictable | May reallocate |
-| Overflow | Overwrites oldest | Overwrites oldest | Grows capacity |
-| Performance | Consistent O(1) | Consistent O(1) | Amortized O(1) |
-| No-std | Supported (with `alloc`) | Fully supported | Requires `std` |
-| ISR-safe | No (heap allocation) | Yes | No |
+| Feature     | `ArrayDeque`             | `StackArrayDeque`      | `VecDeque`     |
+| ----------- | ------------------------ | ---------------------- | -------------- |
+| Allocation  | Heap                     | Stack                  | Heap           |
+| Capacity    | Runtime-fixed            | Compile-time fixed     | Dynamic, grows |
+| Memory      | Predictable after init   | Completely predictable | May reallocate |
+| Overflow    | Overwrites oldest        | Overwrites oldest      | Grows capacity |
+| Performance | Consistent O(1)          | Consistent O(1)        | Amortized O(1) |
+| No-std      | Supported (with `alloc`) | Fully supported        | Requires `std` |
+| ISR-safe    | No (heap allocation)     | Yes                    | No             |
 
 ## License
 

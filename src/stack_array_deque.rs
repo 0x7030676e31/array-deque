@@ -27,7 +27,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// // Overflow: overwrites the front (5)
 /// dq.push_back(30);
-/// assert_eq!(dq.pop_front(), Some(20));
+/// assert_eq!(dq.pop_front(), Some(10));
 /// ```
 pub struct StackArrayDeque<T, const N: usize> {
     data: [MaybeUninit<T>; N],
@@ -628,10 +628,12 @@ mod tests {
         assert_eq!(deque[0], 1);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(std::panic::catch_unwind(|| {
-            let _ = deque[3];
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = deque[3];
+            })
+            .is_err()
+        );
     }
 
     #[test]
@@ -644,10 +646,12 @@ mod tests {
         assert_eq!(deque[0], 10);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(std::panic::catch_unwind(|| {
-            let _ = deque[3];
-        })
-        .is_err());
+        assert!(
+            std::panic::catch_unwind(|| {
+                let _ = deque[3];
+            })
+            .is_err()
+        );
     }
 
     #[test]

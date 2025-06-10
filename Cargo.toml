@@ -1,6 +1,6 @@
 [package]
 name = "array-deque"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 authors = ["Tobiasz Chmielewski <0x7030676e31@proton.me>"]
 description = "Fixed-capacity circular buffer implementations: heap-allocated ArrayDeque and stack-allocated StackArrayDeque. Efficient O(1) operations, no_std support."

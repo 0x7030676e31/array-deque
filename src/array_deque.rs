@@ -41,7 +41,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 ///
 /// // Overflow: overwrites the back ("b")
 /// dq.push_front("x");
-/// assert_eq!(dq.pop_back(), Some("b"));
+/// assert_eq!(dq.pop_back(), Some("a"));
 /// ```
 pub struct ArrayDeque<T> {
     /// Raw pointer to the allocated memory
