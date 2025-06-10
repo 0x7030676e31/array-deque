@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/array-deque.svg)](https://crates.io/crates/array-deque)
 [![Documentation](https://docs.rs/array-deque/badge.svg)](https://docs.rs/array-deque)
-[![License](https://img.shields.io/crates/l/array-deque.svg)](https://github.com/yourusername/array-deque#license)
+[![License](https://img.shields.io/crates/l/array-deque.svg)](https://github.com/0x7030676e31/array-deque#license)
 
 A fixed-capacity circular buffer (ring buffer) implementation providing efficient double-ended queue operations. Unlike `std::collections::VecDeque`, `ArrayDeque` has a compile-time fixed capacity and will overwrite old elements when full, making it ideal for scenarios where memory usage is constrained or predictable.
 
