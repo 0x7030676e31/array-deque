@@ -967,7 +967,8 @@ mod tests {
     #[test]
     fn try_from_vecdeque_over_capacity_errors() {
         let vec_deque: VecDeque<_> = [1, 2, 3, 4].into_iter().collect();
-        let result: Result<StackArrayDeque<_, 3>, CapacityError> = StackArrayDeque::try_from(vec_deque);
+        let result: Result<StackArrayDeque<_, 3>, CapacityError> =
+            StackArrayDeque::try_from(vec_deque);
 
         assert_eq!(
             result,

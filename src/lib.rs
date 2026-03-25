@@ -36,20 +36,20 @@ pub use stack_array_deque::StackArrayDeque;
 /// Error returned when converting into a fixed-capacity deque would exceed capacity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CapacityError {
-	/// Number of elements provided by the input collection.
-	pub len: usize,
-	/// Maximum capacity of the target deque.
-	pub capacity: usize,
+    /// Number of elements provided by the input collection.
+    pub len: usize,
+    /// Maximum capacity of the target deque.
+    pub capacity: usize,
 }
 
 impl fmt::Display for CapacityError {
-	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		write!(
-			f,
-			"input length {} exceeds target capacity {}",
-			self.len, self.capacity
-		)
-	}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "input length {} exceeds target capacity {}",
+            self.len, self.capacity
+        )
+    }
 }
 
 #[cfg(feature = "std")]
