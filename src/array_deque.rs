@@ -4,12 +4,14 @@ extern crate alloc;
 #[cfg(not(feature = "std"))]
 use alloc::{
     alloc::{Layout, alloc, dealloc},
+    collections::VecDeque,
     vec::Vec,
 };
 
 #[cfg(feature = "std")]
 use std::{
     alloc::{Layout, alloc, dealloc},
+    collections::VecDeque,
     vec::Vec,
 };
 
@@ -116,6 +118,11 @@ impl<T> ArrayDeque<T> {
     /// ```
     pub fn push_back(&mut self, value: T) {
         let write_idx = (self.idx + self.len) % self.cap;
+        if self.len == self.cap {
+            unsafe {
+                ptr::drop_in_place(self.ptr.add(write_idx));
+            }
+        }
         unsafe {
             ptr::write(self.ptr.add(write_idx), value);
         }
@@ -495,7 +502,7 @@ impl<T> FromIterator<T> for ArrayDeque<T> {
 impl<T: Clone> From<&[T]> for ArrayDeque<T> {
     /// Clones all elements from a slice into a new deque.
     fn from(slice: &[T]) -> Self {
-        let mut deque = ArrayDeque::new(slice.len());
+        let mut deque = ArrayDeque::new(slice.len().max(1));
         for item in slice {
             deque.push_back(item.clone());
         }
@@ -522,6 +529,31 @@ impl<T> From<Vec<T>> for ArrayDeque<T> {
             deque.push_back(item);
         }
         deque
+    }
+}
+
+impl<T> From<VecDeque<T>> for ArrayDeque<T> {
+    /// Takes ownership of elements from a `VecDeque` (front to back).
+    fn from(mut vec_deque: VecDeque<T>) -> Self {
+        let mut deque = ArrayDeque::new(vec_deque.len().max(1));
+        while let Some(item) = vec_deque.pop_front() {
+            deque.push_back(item);
+        }
+        deque
+    }
+}
+
+impl<T> From<ArrayDeque<T>> for VecDeque<T> {
+    /// Converts this deque into a `VecDeque`, preserving order.
+    fn from(deque: ArrayDeque<T>) -> Self {
+        deque.into_iter().collect()
+    }
+}
+
+impl<T: Clone> From<&ArrayDeque<T>> for VecDeque<T> {
+    /// Clones elements into a `VecDeque`, preserving order.
+    fn from(deque: &ArrayDeque<T>) -> Self {
+        deque.iter().cloned().collect()
     }
 }
 
@@ -581,10 +613,7 @@ impl<T> IntoIterator for ArrayDeque<T> {
     type IntoIter = ArrayDequeIntoIter<T>;
     /// Consumes the deque and returns an iterator over its elements.
     fn into_iter(self) -> Self::IntoIter {
-        ArrayDequeIntoIter {
-            deque: self,
-            pos: 0,
-        }
+        ArrayDequeIntoIter { deque: self }
     }
 }
 
@@ -593,7 +622,6 @@ impl<T> IntoIterator for ArrayDeque<T> {
 /// Returned by `into_iter()`.
 pub struct ArrayDequeIntoIter<T> {
     deque: ArrayDeque<T>,
-    pos: usize,
 }
 
 impl<T> Iterator for ArrayDequeIntoIter<T> {
@@ -601,12 +629,7 @@ impl<T> Iterator for ArrayDequeIntoIter<T> {
 
     /// Advances and returns the next element.
     fn next(&mut self) -> Option<T> {
-        if self.pos >= self.deque.len {
-            return None;
-        }
-        let idx = (self.deque.idx + self.pos) % self.deque.cap;
-        self.pos += 1;
-        Some(unsafe { ptr::read(self.deque.ptr.add(idx)) })
+        self.deque.pop_front()
     }
 }
 
@@ -649,6 +672,29 @@ impl<'a, T> ExactSizeIterator for ArrayDequeIter<'a, T> {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{sync::Arc, vec};
+    #[cfg(feature = "std")]
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct DropCounter {
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl DropCounter {
+        fn new(drops: Arc<AtomicUsize>) -> Self {
+            Self { drops }
+        }
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 
     #[test]
     fn push_pop() {
@@ -754,12 +800,14 @@ mod tests {
         assert_eq!(deque[0], 1);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = deque[3];
-            })
-            .is_err()
-        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn index_out_of_bounds_panics() {
+        let mut deque = ArrayDeque::new(5);
+        deque.push_back(1);
+        let _ = deque[1];
     }
 
     #[test]
@@ -772,12 +820,14 @@ mod tests {
         assert_eq!(deque[0], 10);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = deque[3];
-            })
-            .is_err()
-        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn index_mut_out_of_bounds_panics() {
+        let mut deque = ArrayDeque::new(5);
+        deque.push_back(1);
+        deque[1] = 99;
     }
 
     #[test]
@@ -899,6 +949,69 @@ mod tests {
         deque.clear();
         assert!(deque.is_empty());
         assert_eq!(deque.len(), 0);
+    }
+
+    #[test]
+    fn push_back_overwrite_drops_replaced_element() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        {
+            let mut deque = ArrayDeque::new(2);
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+        }
+
+        assert_eq!(drops.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn into_iter_partial_consumption_no_double_drop() {
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        {
+            let mut deque = ArrayDeque::new(2);
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+
+            let mut iter = deque.into_iter();
+            let _first = iter.next();
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+        }
+
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn from_empty_slice_is_empty_with_min_capacity() {
+        let slice: &[i32] = &[];
+        let deque = ArrayDeque::from(slice);
+
+        assert!(deque.is_empty());
+        assert_eq!(deque.capacity(), 1);
+    }
+
+    #[test]
+    fn from_vecdeque_preserves_order_and_len() {
+        let vec_deque: VecDeque<_> = [1, 2, 3].into_iter().collect();
+        let deque = ArrayDeque::from(vec_deque);
+
+        assert_eq!(deque.len(), 3);
+        assert_eq!(deque[0], 1);
+        assert_eq!(deque[1], 2);
+        assert_eq!(deque[2], 3);
+    }
+
+    #[test]
+    fn into_vecdeque_preserves_order() {
+        let mut deque = ArrayDeque::new(3);
+        deque.push_back(1);
+        deque.push_back(2);
+        deque.push_back(3);
+
+        let vec_deque: VecDeque<_> = VecDeque::from(deque);
+        assert_eq!(vec_deque.into_iter().collect::<Vec<_>>(), vec![1, 2, 3]);
     }
 
     #[test]

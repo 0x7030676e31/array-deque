@@ -1,6 +1,15 @@
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+use crate::CapacityError;
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::{Index, IndexMut};
+
+#[cfg(not(feature = "std"))]
+use alloc::collections::VecDeque;
+#[cfg(feature = "std")]
+use std::collections::VecDeque;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -77,6 +86,11 @@ impl<T, const N: usize> StackArrayDeque<T, N> {
     /// ```
     pub fn push_back(&mut self, value: T) {
         let write_idx = (self.idx + self.len) % N;
+        if self.len == N {
+            unsafe {
+                self.data[write_idx].assume_init_drop();
+            }
+        }
         self.data[write_idx].write(value);
 
         if self.len == N {
@@ -480,27 +494,52 @@ impl<T, const N: usize> FromIterator<T> for StackArrayDeque<T, N> {
     }
 }
 
+impl<T, const N: usize> TryFrom<VecDeque<T>> for StackArrayDeque<T, N> {
+    type Error = CapacityError;
+
+    /// Converts from `VecDeque` into `StackArrayDeque`, failing if input exceeds capacity.
+    fn try_from(mut vec_deque: VecDeque<T>) -> Result<Self, Self::Error> {
+        if vec_deque.len() > N {
+            return Err(CapacityError {
+                len: vec_deque.len(),
+                capacity: N,
+            });
+        }
+
+        let mut deque = StackArrayDeque::new();
+        while let Some(item) = vec_deque.pop_front() {
+            deque.push_back(item);
+        }
+        Ok(deque)
+    }
+}
+
+impl<T, const N: usize> From<StackArrayDeque<T, N>> for VecDeque<T> {
+    /// Converts this deque into a `VecDeque`, preserving order.
+    fn from(deque: StackArrayDeque<T, N>) -> Self {
+        deque.into_iter().collect()
+    }
+}
+
+impl<T: Clone, const N: usize> From<&StackArrayDeque<T, N>> for VecDeque<T> {
+    /// Clones elements into a `VecDeque`, preserving order.
+    fn from(deque: &StackArrayDeque<T, N>) -> Self {
+        deque.iter().cloned().collect()
+    }
+}
+
 /// An owning iterator that moves elements out of a `StackArrayDeque`.
 ///
 /// This is returned by `into_iter()`.
 pub struct StackArrayDequeIntoIter<T, const N: usize> {
     deque: StackArrayDeque<T, N>,
-    pos: usize,
 }
 
 impl<T, const N: usize> Iterator for StackArrayDequeIntoIter<T, N> {
     type Item = T;
     /// Advances and returns the next element, front to back.
     fn next(&mut self) -> Option<T> {
-        if self.pos >= self.deque.len {
-            None
-        } else {
-            // read element at front+pos
-            let idx = (self.deque.idx + self.pos) % N;
-            self.pos += 1;
-            // safety: we know these slots were initialized
-            Some(unsafe { self.deque.data[idx].assume_init_read() })
-        }
+        self.deque.pop_front()
     }
 }
 
@@ -509,10 +548,7 @@ impl<T, const N: usize> IntoIterator for StackArrayDeque<T, N> {
     type IntoIter = StackArrayDequeIntoIter<T, N>;
     /// Consumes the deque and returns an iterator over its elements.
     fn into_iter(self) -> Self::IntoIter {
-        StackArrayDequeIntoIter {
-            deque: self,
-            pos: 0,
-        }
+        StackArrayDequeIntoIter { deque: self }
     }
 }
 
@@ -553,6 +589,29 @@ impl<'a, T, const N: usize> IntoIterator for &'a StackArrayDeque<T, N> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::sync::atomic::{AtomicUsize, Ordering};
+
+    #[cfg(not(feature = "std"))]
+    use alloc::{format, sync::Arc};
+    #[cfg(feature = "std")]
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct DropCounter {
+        drops: Arc<AtomicUsize>,
+    }
+
+    impl DropCounter {
+        fn new(drops: Arc<AtomicUsize>) -> Self {
+            Self { drops }
+        }
+    }
+
+    impl Drop for DropCounter {
+        fn drop(&mut self) {
+            self.drops.fetch_add(1, Ordering::SeqCst);
+        }
+    }
 
     #[test]
     fn push_pop() {
@@ -628,12 +687,14 @@ mod tests {
         assert_eq!(deque[0], 1);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = deque[3];
-            })
-            .is_err()
-        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn index_out_of_bounds_panics() {
+        let mut deque: StackArrayDeque<i32, 5> = StackArrayDeque::new();
+        deque.push_back(1);
+        let _ = deque[1];
     }
 
     #[test]
@@ -646,12 +707,14 @@ mod tests {
         assert_eq!(deque[0], 10);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
-        assert!(
-            std::panic::catch_unwind(|| {
-                let _ = deque[3];
-            })
-            .is_err()
-        );
+    }
+
+    #[test]
+    #[should_panic]
+    fn index_mut_out_of_bounds_panics() {
+        let mut deque: StackArrayDeque<i32, 5> = StackArrayDeque::new();
+        deque.push_back(1);
+        deque[1] = 99;
     }
 
     #[test]
@@ -856,5 +919,74 @@ mod tests {
 
         assert_eq!(deque.pop_front(), Some(2));
         assert!(deque.is_empty());
+    }
+
+    #[test]
+    fn push_back_overwrite_drops_replaced_element() {
+        let drops = Arc::new(AtomicUsize::new(0));
+        {
+            let mut deque: StackArrayDeque<DropCounter, 2> = StackArrayDeque::new();
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+
+            assert_eq!(drops.load(Ordering::SeqCst), 1);
+        }
+
+        assert_eq!(drops.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn into_iter_partial_consumption_no_double_drop() {
+        let drops = Arc::new(AtomicUsize::new(0));
+
+        {
+            let mut deque: StackArrayDeque<DropCounter, 2> = StackArrayDeque::new();
+            deque.push_back(DropCounter::new(drops.clone()));
+            deque.push_back(DropCounter::new(drops.clone()));
+
+            let mut iter = deque.into_iter();
+            let _first = iter.next();
+            assert_eq!(drops.load(Ordering::SeqCst), 0);
+        }
+
+        assert_eq!(drops.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn try_from_vecdeque_within_capacity() {
+        let vec_deque: VecDeque<_> = [1, 2, 3].into_iter().collect();
+        let deque: StackArrayDeque<_, 3> = StackArrayDeque::try_from(vec_deque).unwrap();
+
+        assert_eq!(deque.len(), 3);
+        assert_eq!(deque[0], 1);
+        assert_eq!(deque[1], 2);
+        assert_eq!(deque[2], 3);
+    }
+
+    #[test]
+    fn try_from_vecdeque_over_capacity_errors() {
+        let vec_deque: VecDeque<_> = [1, 2, 3, 4].into_iter().collect();
+        let result: Result<StackArrayDeque<_, 3>, CapacityError> = StackArrayDeque::try_from(vec_deque);
+
+        assert_eq!(
+            result,
+            Err(CapacityError {
+                len: 4,
+                capacity: 3,
+            })
+        );
+    }
+
+    #[test]
+    fn into_vecdeque_preserves_order() {
+        let mut deque: StackArrayDeque<i32, 3> = StackArrayDeque::new();
+        deque.push_back(1);
+        deque.push_back(2);
+        deque.push_back(3);
+
+        let vec_deque: VecDeque<_> = VecDeque::from(deque);
+        let expected: VecDeque<_> = [1, 2, 3].into_iter().collect();
+        assert_eq!(vec_deque, expected);
     }
 }

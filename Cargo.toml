@@ -1,6 +1,6 @@
 [package]
 name = "array-deque"
-version = "0.3.1"
+version = "0.4.0"
 edition = "2024"
 authors = ["Tobiasz Chmielewski <0x7030676e31@proton.me>"]
 description = "Fixed-capacity circular buffer implementations: heap-allocated ArrayDeque and stack-allocated StackArrayDeque. Efficient O(1) operations, no_std support."
@@ -20,7 +20,7 @@ categories = ["data-structures", "no-std"]
 exclude = ["target/", ".git/", ".vscode/"]
 
 [dependencies]
-serde = { version = "1.0.219", optional = true }
+serde = { version = "1.0.228", optional = true }
 
 [dev-dependencies]
 serde_json = "1.0.140"

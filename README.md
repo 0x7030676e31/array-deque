@@ -197,6 +197,31 @@ for i in 1..=5 {
 }
 ```
 
+### `VecDeque` Interoperability
+
+Both deques integrate with `std::collections::VecDeque` while preserving order:
+
+```rust
+use array_deque::{ArrayDeque, StackArrayDeque};
+use std::collections::VecDeque;
+
+let source: VecDeque<_> = [1, 2, 3].into_iter().collect();
+
+// VecDeque -> ArrayDeque (infallible)
+let heap = ArrayDeque::from(source.clone());
+
+// ArrayDeque -> VecDeque
+let roundtrip_heap: VecDeque<_> = heap.into();
+assert_eq!(roundtrip_heap, source);
+
+// VecDeque -> StackArrayDeque (fallible if input exceeds capacity)
+let stack: StackArrayDeque<_, 3> = StackArrayDeque::try_from(source.clone()).unwrap();
+
+// StackArrayDeque -> VecDeque
+let roundtrip_stack: VecDeque<_> = stack.into();
+assert_eq!(roundtrip_stack, source);
+```
+
 ### No-std Usage
 
 Both types work in `no_std` environments:
