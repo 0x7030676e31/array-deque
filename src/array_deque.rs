@@ -119,6 +119,9 @@ impl<T> ArrayDeque<T> {
     pub fn push_back(&mut self, value: T) {
         let write_idx = (self.idx + self.len) % self.cap;
         if self.len == self.cap {
+            // Retire the evicted slot before destroying it.
+            self.len -= 1;
+            self.idx = (self.idx + 1) % self.cap;
             unsafe {
                 ptr::drop_in_place(self.ptr.add(write_idx));
             }
@@ -126,11 +129,7 @@ impl<T> ArrayDeque<T> {
         unsafe {
             ptr::write(self.ptr.add(write_idx), value);
         }
-        if self.len == self.cap {
-            self.idx = (self.idx + 1) % self.cap;
-        } else {
-            self.len += 1;
-        }
+        self.len += 1;
     }
 
     /// Prepends an element to the front of the deque.
@@ -153,18 +152,19 @@ impl<T> ArrayDeque<T> {
     /// assert_eq!(deque[1], 1);
     /// ```
     pub fn push_front(&mut self, value: T) {
-        self.idx = (self.idx + self.cap - 1) % self.cap;
         if self.len == self.cap {
+            // Retire the evicted back element before destroying it.
+            self.len -= 1;
             let drop_idx = (self.idx + self.len) % self.cap;
             unsafe {
                 ptr::drop_in_place(self.ptr.add(drop_idx));
             }
-        } else {
-            self.len += 1;
         }
+        self.idx = (self.idx + self.cap - 1) % self.cap;
         unsafe {
             ptr::write(self.ptr.add(self.idx), value);
         }
+        self.len += 1;
     }
 
     /// Removes and returns the last element from the deque.
@@ -364,13 +364,17 @@ impl<T> ArrayDeque<T> {
     /// assert_eq!(dq.len(), 0);
     /// ```
     pub fn clear(&mut self) {
-        for i in 0..self.len {
-            let idx = (self.idx + i) % self.cap;
+        while self.len > 0 {
+            let idx = self.idx;
+            // Retire the slot before destroying it. If `T::drop` panics the
+            // element is already outside the live range, so `Drop for
+            // ArrayDeque` cannot drop it a second time.
+            self.idx = (self.idx + 1) % self.cap;
+            self.len -= 1;
             unsafe {
                 ptr::drop_in_place(self.ptr.add(idx));
             }
         }
-        self.len = 0;
         self.idx = 0;
     }
 }
@@ -1033,5 +1037,73 @@ mod tests {
         assert_eq!(deque[0], 1);
         assert_eq!(deque[1], 2);
         assert_eq!(deque[2], 3);
+    }
+
+    /// A panicking `Drop` must not leave a destroyed element inside the live
+    /// range. `clear`, `push_back` and `push_front` used to destroy elements
+    /// before updating `len`/`idx`, so `Drop for ArrayDeque` dropped them again.
+    #[cfg(feature = "std")]
+    #[test]
+    fn panicking_drop_does_not_double_free() {
+        use core::sync::atomic::AtomicBool;
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        static DROPS: AtomicUsize = AtomicUsize::new(0);
+        static ARMED: AtomicBool = AtomicBool::new(false);
+
+        struct Boom(#[allow(dead_code)] u64);
+
+        impl Drop for Boom {
+            fn drop(&mut self) {
+                DROPS.fetch_add(1, Ordering::SeqCst);
+                if ARMED.swap(false, Ordering::SeqCst) {
+                    panic!("element Drop panics");
+                }
+            }
+        }
+
+        // clear
+        DROPS.store(0, Ordering::SeqCst);
+        {
+            let mut dq = ArrayDeque::new(4);
+            dq.push_back(Boom(0));
+            dq.push_back(Boom(1));
+            dq.push_back(Boom(2));
+
+            ARMED.store(true, Ordering::SeqCst);
+            let r = catch_unwind(AssertUnwindSafe(|| dq.clear()));
+            assert!(r.is_err());
+            assert_eq!(dq.len(), 2, "clear: len must be lowered before the drop");
+        }
+        assert_eq!(DROPS.load(Ordering::SeqCst), 3, "clear: an element was dropped twice");
+
+        // push_back at capacity
+        DROPS.store(0, Ordering::SeqCst);
+        {
+            let mut dq = ArrayDeque::new(2);
+            dq.push_back(Boom(0));
+            dq.push_back(Boom(1));
+
+            ARMED.store(true, Ordering::SeqCst);
+            let r = catch_unwind(AssertUnwindSafe(|| dq.push_back(Boom(2))));
+            assert!(r.is_err());
+            assert_eq!(dq.len(), 1, "push_back: len must be lowered before the drop");
+        }
+        // two stored plus the rejected argument, each dropped once
+        assert_eq!(DROPS.load(Ordering::SeqCst), 3, "push_back: an element was dropped twice");
+
+        // push_front at capacity
+        DROPS.store(0, Ordering::SeqCst);
+        {
+            let mut dq = ArrayDeque::new(2);
+            dq.push_back(Boom(0));
+            dq.push_back(Boom(1));
+
+            ARMED.store(true, Ordering::SeqCst);
+            let r = catch_unwind(AssertUnwindSafe(|| dq.push_front(Boom(2))));
+            assert!(r.is_err());
+            assert_eq!(dq.len(), 1, "push_front: len must be lowered before the drop");
+        }
+        assert_eq!(DROPS.load(Ordering::SeqCst), 3, "push_front: an element was dropped twice");
     }
 }
